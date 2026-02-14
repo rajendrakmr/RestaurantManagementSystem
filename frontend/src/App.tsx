@@ -16,7 +16,7 @@ const App: React.FC = () => {
             
                 <Routes>
                     {/* Base URL exact match redirects to login */}
-                <Route path="/" element={<Navigate to="/login" replace />} />
+                {/* <Route path="/" element={<Navigate to="/login" replace />} /> */}
 
 
                     {/* Public routes */}

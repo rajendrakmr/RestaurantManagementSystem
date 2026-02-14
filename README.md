@@ -1,6 +1,7 @@
 # 🍽️ Restaurant Management System
 
-**Restaurant Management System** is an open-source web application designed to help restaurants manage operations efficiently. It includes features like menu management, table reservations, order tracking, and user authentication with a responsive, modern UI.  
+**Restaurant Management System**
+ is an open-source web application designed to help restaurants manage operations efficiently. It includes features like menu management, table reservations, order tracking, and user authentication with a responsive, modern UI.  
 
 ---
 
