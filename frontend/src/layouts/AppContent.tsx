@@ -29,7 +29,7 @@ const AppContent: FC<appContentProps> = ({isToggle}) => {
         }
       >
         <Routes>
-          {routes.map((route: AppRoute, idx: number) => { 
+          {routes.map((route: any, idx: number) => { 
             return (
               route.component && (
                 <Route

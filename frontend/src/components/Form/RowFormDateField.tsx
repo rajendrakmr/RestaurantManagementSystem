@@ -5,7 +5,7 @@ import 'react-datepicker/dist/react-datepicker.css';
 interface InputFormFieldProps {
     label: string;
     name?: string;
-    inputValue: Date | null;
+    inputValue?: Date | null;
     error?: string;
     placeholder?: string;
     onChange?: (date: Date | null) => void;
@@ -57,11 +57,7 @@ const RowFormDateField: React.FC<InputFormFieldProps> = memo(({
                     dateFormat="yyyy-MM-dd"
                     className={`form-control ${error ? 'is-invalid' : ''}`}
                     wrapperClassName="w-100"
-                    style={{
-                        width: '105%',
-                        paddingLeft: '4px',
-                        borderRadius: '0px'
-                    }}
+                     
                 />
 
                 {error && (

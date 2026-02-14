@@ -1,0 +1,380 @@
+import { jsx as _jsx, jsxs as _jsxs } from "react/jsx-runtime";
+import RowFormInputField from "@/components/Form/RowFormInputField";
+import { useCallback, useEffect, useState } from "react";
+import { toast } from "react-toastify";
+import PopUpCheckBox from "@/components/PopUpCheckBox";
+import { setBreadcrumbs } from "@/store/slice/bredCrumbs";
+import { useDispatch } from "react-redux";
+import { calculateDays } from "@/utils/commonHelper";
+import DpeTableRow from "./DpeTableRow";
+import moment from "moment";
+const Edit = ({ setIsEdit, apiRequest, initialForm, setInitialForm }) => {
+    const dispatch = useDispatch();
+    const [services, setServices] = useState([]);
+    const [paymentRecord, setPaymentRecord] = useState([]);
+    const [formData, setFormData] = useState(initialForm);
+    const [errors, setErrors] = useState({});
+    const [modal, setModal] = useState(false);
+    const [canPay, setCanPay] = useState(false);
+    const [submitting, setSubmitting] = useState(false);
+    const [config, setConfig] = useState({});
+    const [adding, setAdding] = useState(false);
+    const [inserting, setInserting] = useState({ index: null, isInserting: false });
+    useEffect(() => {
+        dispatch(setBreadcrumbs([
+            { label: "Container Operation", path: "" },
+            { label: "Transaction", path: "" },
+            { label: "Direct Port Entry Service Charges", path: "" },
+            { label: "Edit" }
+        ]));
+    }, [dispatch]);
+    const fetchServices = async () => {
+        try {
+            const url = "/services";
+            const response = await apiRequest({ url, method: "GET" });
+            if (response?.length > 0) {
+                const newData = response.map((row) => ({
+                    label: row?.serviceName,
+                    value: row?.serviceId,
+                }));
+                setServices(newData);
+            }
+        }
+        catch (error) {
+            console.error(error);
+        }
+    };
+    useEffect(() => {
+        fetchServices();
+    }, []);
+    const recalculateRow = (row) => {
+        const rate = Number(row.rate) || 0;
+        const days = calculateDays(row.from, row.to);
+        const amount = rate * days;
+        const gstRate = 0.18;
+        const gstAmount = amount * gstRate;
+        const cgstAmount = amount * 0.09;
+        const sgstAmount = amount * 0.09;
+        const total = amount + gstAmount;
+        return {
+            ...row,
+            amount: Number(amount.toFixed(2)) || 0,
+            gst: Number(gstAmount.toFixed(2)) || 0,
+            cgst: Number(cgstAmount.toFixed(2)) || 0,
+            sgst: Number(sgstAmount.toFixed(2)) || 0,
+            totalVal: Number(total.toFixed(2)) || 0,
+        };
+    };
+    const handleRowChange = useCallback(async (index, field, value) => {
+        setFormData((prev) => {
+            const rows = [...prev.details];
+            let row = { ...rows[index], [field]: value };
+            if (["rate", "from", "to"].includes(field)) {
+                row = recalculateRow(row);
+            }
+            rows[index] = row;
+            return { ...prev, details: rows };
+        });
+        if (field === "service") {
+            const url = `/rate?serviceId=${value}&containerSize=${formData.containerSize}&loadingStatus=${formData.loadingStatus}&foreignCoastalFlag=${formData.foreignCoastalFlag}`;
+            const rate = await apiRequest({ url, method: "GET" });
+            setFormData((current) => {
+                const updatedRows = [...current.details];
+                let updatedRow = {
+                    ...updatedRows[index],
+                    rate,
+                };
+                updatedRow = recalculateRow(updatedRow);
+                updatedRows[index] = updatedRow;
+                return { ...current, details: updatedRows };
+            });
+        }
+        setErrors((prev) => ({
+            ...prev,
+            [`row_${index}`]: {
+                ...prev[`row_${index}`],
+                [field]: "",
+            },
+        }));
+    }, [formData]);
+    const checkRowForPayment = useCallback((row) => {
+        const totalAmount = Number(row?.totalVal || row?.total || 0);
+        if (!totalAmount || totalAmount <= 0) {
+            toast.warn("Amount should not be 0(zero).", { position: "top-right", autoClose: 6000 });
+            return;
+        }
+        setPaymentRecord((prev) => {
+            const exists = prev.some((item) => item?.id?.chitNo === row?.id?.chitNo &&
+                item?.id?.srlNo === row?.id?.srlNo);
+            if (exists) {
+                return prev.filter((item) => !(item?.id?.chitNo === row?.id?.chitNo &&
+                    item?.id?.srlNo === row?.id?.srlNo));
+            }
+            return [...prev, row];
+        });
+    }, []);
+    const sanitizeNumber = (value, field) => {
+        let numericValue = value.replace(/[^0-9.]/g, "");
+        const parts = numericValue.split(".");
+        if (parts.length > 2) {
+            numericValue = parts[0] + "." + parts[1];
+        }
+        if (field === "gst") {
+            const gstValue = Number(numericValue);
+            if (gstValue > 100)
+                numericValue = "100";
+        }
+        return Number(numericValue) || 0;
+    };
+    const handleCalcChange = useCallback((index, field, rawValue) => {
+        const value = sanitizeNumber(rawValue, field);
+        setFormData((prev) => {
+            const rows = [...prev.details];
+            const row = { ...rows[index], [field]: value };
+            const amount = Number(row.amount) || 0;
+            const gst = Number(row.gst) || 0;
+            row.total = Number((amount + (amount * gst) / 100).toFixed(2));
+            rows[index] = row;
+            return { ...prev, details: rows };
+        });
+    }, []);
+    /**Handle Change (onchange request) */
+    const handleChange = (e) => {
+        setFormData((prevData) => ({
+            ...prevData,
+            [e.target.name]: e.target.value,
+        }));
+        setErrors({ ...errors, [e.target.name]: "" });
+    };
+    const validateRow = (row, index) => {
+        const itemErrors = {};
+        if (!row.cfsDate)
+            itemErrors.cfsDate = "CFS Date is required";
+        if (!row.service)
+            itemErrors.service = "Service is required";
+        if (!row.from)
+            itemErrors.from = "From date is required";
+        if (!row.to)
+            itemErrors.to = "To date is required";
+        if (row.from && row.to && row.to < row.from) {
+            itemErrors.to = "To date cannot be before From date";
+        }
+        setErrors(prev => ({
+            ...prev,
+            [`row_${index}`]: itemErrors,
+        }));
+        return Object.keys(itemErrors).length === 0;
+    };
+    const addRow = async (e) => {
+        e.preventDefault();
+        if (adding)
+            return;
+        setAdding(true);
+        try {
+            if (!formData?.adChitNo || !formData?.containerNo || !formData?.chAgentName) {
+                toast.warn("Please add Container Details first before adding new row.", { position: "top-right", autoClose: 6000 });
+                return;
+            }
+            const rows = formData?.details || [];
+            if (rows.length > 0) {
+                const lastIndex = rows.length - 1;
+                const lastRow = rows[lastIndex];
+                if (!validateRow(lastRow, lastIndex)) {
+                    toast.error("Please fill mandatory field row errors before adding new row", { position: "top-right", autoClose: 6000 });
+                    return;
+                }
+                if (!lastRow?.id) {
+                    toast.error("Please insert the current row before adding new row", { position: "top-right", autoClose: 6000 });
+                    return;
+                }
+            }
+            const cfsNo = await apiRequest({ url: "/generate-cfs", method: "GET" });
+            const newRow = {
+                cfsNo,
+                cfsDate: "",
+                service: "",
+                from: "",
+                to: "",
+                rate: 0,
+                amount: 0,
+                gst: 0,
+                total: 0,
+                paymentNo: "",
+                paymentDate: "",
+                remarks: ""
+            };
+            setFormData((prev) => ({
+                ...prev,
+                details: [...(prev.details || []), newRow],
+            }));
+        }
+        catch (error) {
+            toast.error("Failed to generate CFS number");
+        }
+        finally {
+            setAdding(false);
+        }
+    };
+    const deleteRow = (index) => {
+        setFormData((prev) => {
+            const rows = [...prev.details];
+            if (rows[index]?.isSaved) {
+                toast.warning("Saved row cannot be deleted");
+                return prev;
+            }
+            rows.splice(index, 1);
+            return { ...prev, details: rows };
+        });
+        setErrors(prev => {
+            const newErrors = { ...prev };
+            delete newErrors[`row_${index}`];
+            return newErrors;
+        });
+    };
+    const auth = JSON.parse(localStorage.getItem("auth_data") || "null");
+    const saveRow = useCallback(async (index) => {
+        const row = formData.details[index];
+        const isValid = validateRow(row, index);
+        if (!isValid) {
+            toast.error("Please fix row errors before saving");
+            return;
+        }
+        setInserting((prev) => { return { ...prev, index: index, isInserting: true }; });
+        const item = formData?.details[index];
+        if (!item) {
+            toast.error("Please add row and fill the mandatory field.");
+            return;
+        }
+        const payload = {
+            header: {
+                chitNo: formData?.adChitNo,
+                containerNo: formData?.containerNo,
+                gateInDateTime: formData?.adTime ? moment(formData?.adTime, "YYYY-MM-DD").format("DD/MM/YYYY") : "",
+                partyCd: formData?.chAgentCode,
+                agentCustomerName: formData?.chAgentName,
+                boeNo: formData?.shipBillNo,
+                tenDeliveryDate: formData?.delDateTentive ? moment(formData?.delDateTentive, "YYYY-MM-DD").format("DD/MM/YYYY") : "",
+                actDeliveryDate: formData?.delDateActual ? moment(formData?.delDateActual, "YYYY-MM-DD").format("DD/MM/YYYY") : "",
+                zoneId: formData?.zoneId || "",
+            },
+            detail: {
+                ...(item?.id && { id: item?.id }),
+                cfsNo: item?.cfsNo,
+                cfsDate: item?.cfsDate ? moment(item?.cfsDate, "YYYY-MM-DD").format("DD/MM/YYYY") : "",
+                serviceTypeCd: item?.service,
+                serviceFromDate: item?.from ? moment(item?.from, "YYYY-MM-DD").format("DD/MM/YYYY") : "",
+                serviceToDate: item?.to ? moment(item?.to, "YYYY-MM-DD").format("DD/MM/YYYY") : "",
+                rate: item?.rate,
+                amount: item?.amount,
+                cgst: item?.cgst || 0,
+                sgst: item?.sgst || 0,
+                igst: item?.igst || 0,
+                gst: item?.gst || 0,
+                totalVal: item?.totalVal,
+                paymentNo: item?.paymentNo,
+                paymentDate: item.paymentDate ? item?.paymentDate : "",
+                serviceRemarks: item?.remarks,
+                cancelFlag: "N",
+            }
+        };
+        try {
+            const url = `/service/charge/add-edit?userId=${auth?.userID}`;
+            const response = await apiRequest({ url, method: "POST", data: payload });
+            toast.success("Row inserted successfully", { position: "top-right", autoClose: 6000 });
+            const detail = response?.success && response?.success?.serviceDetails?.length
+                ? response?.success?.serviceDetails.map((item) => {
+                    const rate = Number(item.rate) || 0;
+                    const days = calculateDays(moment(item.serviceFromDate, "DD/MM/YYYY").format("YYYY-MM-DD"), moment(item.serviceToDate, "DD/MM/YYYY").format("YYYY-MM-DD"));
+                    const amount = rate * days;
+                    const gstRate = 0.18;
+                    const gstAmount = amount * gstRate;
+                    return {
+                        id: item?.id ? item?.id : "",
+                        cfsNo: item?.cfsNo ? item?.cfsNo : "",
+                        cfsDate: item.cfsDate ? moment(item.cfsDate, "DD/MM/YYYY").format("YYYY-MM-DD") : "",
+                        service: item?.serviceTypeCd,
+                        from: item.serviceFromDate ? moment(item.serviceFromDate, "DD/MM/YYYY").format("YYYY-MM-DD") : "",
+                        to: item.serviceToDate ? moment(item.serviceToDate, "DD/MM/YYYY").format("YYYY-MM-DD") : "",
+                        rate: item?.rate ? item?.rate : 0,
+                        amount: item?.amount ? item?.amount : 0,
+                        sgst: item?.sgst ? item?.sgst : 0,
+                        cgst: item?.cgst ? item?.cgst : 0,
+                        igst: item?.igst ? item?.igst : 0,
+                        gst: Number(gstAmount.toFixed(2)) || 0,
+                        totalVal: item?.totalVal ? item?.totalVal : 0,
+                        paymentNo: item?.paymentNo ? item?.paymentNo : "",
+                        paymentDate: item.paymentDate ? item?.paymentDate : "",
+                        remarks: item?.serviceRemarks ? item?.serviceRemarks : "",
+                        cancelFlag: "N",
+                    };
+                }) : [];
+            setFormData((prev) => ({
+                ...prev,
+                details: detail,
+            }));
+        }
+        catch (err) {
+            console.error(err);
+            toast.error("Failed to save row");
+        }
+        finally {
+            setInserting((prev) => { return { ...prev, index: null, isInserting: false }; });
+        }
+    }, [auth]);
+    const handleRazorpayPayment = async () => {
+        const totalAmount = 21;
+        if (totalAmount <= 0) {
+            toast.error("Invalid amount");
+            return;
+        }
+        const confirmPayment = window.confirm(`Confirm payment of ₹${totalAmount}?`);
+        if (!confirmPayment)
+            return;
+        try {
+            const options = {
+                key: "rzp_test_RLf4v1l3wkKW6r",
+                amount: totalAmount * 100, // ✅ paise
+                currency: "INR",
+                name: "DPE Service Charges",
+                description: `POS Payment ₹${totalAmount}`,
+                // order_id: order.id, // backend se aayega
+                handler: async function (response) {
+                    toast.success("Payment Successful");
+                },
+                modal: {
+                    backdropclose: false,
+                    escape: false
+                },
+                theme: {
+                    color: "#023e8a"
+                }
+            };
+            const rzp = new window.Razorpay(options);
+            rzp.open();
+        }
+        catch (error) {
+            console.error(error);
+            toast.error("Payment failed");
+        }
+    };
+    useEffect(() => {
+        const rows = formData?.details || [];
+        if (rows.length > 0) {
+            const lastRow = rows[rows.length - 1];
+            const hasId = Object.prototype.hasOwnProperty.call(lastRow, "id");
+            setCanPay(!hasId);
+        }
+    }, [formData]);
+    return (_jsxs("div", { className: "_rkContentBorder container-fluid py-3", style: { border: "1px solid black", marginTop: "7px", marginBottom: "70px" }, children: [_jsxs("div", { className: "d-flex justify-content-between align-items-center text-white px-3 py-1 mb-3 fw-bold", style: { backgroundColor: "#023e8a" }, children: [_jsx("span", { style: { fontSize: "12px" }, children: "\uD83D\uDC49 DPE Service Charge >> Edit" }), _jsx("a", { href: "#", style: { fontSize: "11px" }, className: "text-white", onClick: (e) => {
+                            e.preventDefault();
+                            setIsEdit(false);
+                            setInitialForm({});
+                        }, children: "Back to Search Page" })] }), _jsxs("div", { className: "row", children: [_jsx(RowFormInputField, { label: "Container No", name: "containerNo", isDefault: true, inputValue: formData.containerNo, error: errors.containerNo, required: true, onChange: handleChange }), _jsx(RowFormInputField, { label: "Admission Chit No", name: "adChitNo", isDefault: true, inputValue: formData.adChitNo, error: errors.adChitNo, onChange: handleChange }), _jsx(RowFormInputField, { label: "Admission Time", name: "adTime", isDefault: true, inputValue: formData.adTime, error: errors.adTime, onChange: handleChange }), _jsx(RowFormInputField, { label: "CH Agent Name", name: "chAgentName", isDefault: true, inputValue: formData.chAgentName, error: errors.chAgentName, onChange: handleChange }), _jsx(RowFormInputField, { label: "Shipping Bill No", name: "shipBillNo", isDefault: true, inputValue: formData.shipBillNo, error: errors.shipBillNo, onChange: handleChange }), _jsx(RowFormInputField, { type: "date", label: "Delivery Date (Tentative)", name: "delDateTentive", inputValue: formData.delDateTentive, error: errors.delDateTentive, onChange: handleChange }), _jsx(RowFormInputField, { type: "date", label: "Delivery Date (Actual)", name: "delDateActual", inputValue: formData.delDateActual, error: errors.delDateActual, onChange: handleChange })] }), _jsx("div", { className: "text-white px-3 mb-3 mt-2 fw-bold", style: { backgroundColor: "#023e8a" }, children: _jsx("span", { style: { fontSize: "12px" }, children: "\u27A4 Details" }) }), _jsx("div", { className: "row", children: _jsxs("div", { className: "col-12", children: [_jsx("div", { style: { overflowX: "auto" }, children: _jsxs("table", { className: "custom-table text-white", children: [_jsx("thead", { style: { backgroundColor: "#023e8a" }, children: _jsxs("tr", { children: [_jsx("th", { style: { minWidth: "140px" }, children: "Action" }), _jsxs("th", { style: { minWidth: "155px" }, children: ["CFS No", _jsx("span", { className: "text-danger", children: "*" })] }), _jsxs("th", { children: ["CFS Date", _jsx("span", { className: "text-danger", children: "*" })] }), _jsxs("th", { style: { minWidth: "200px" }, children: ["Service", _jsx("span", { className: "text-danger", children: "*" })] }), _jsxs("th", { children: ["From", _jsx("span", { className: "text-danger", children: "*" })] }), _jsxs("th", { children: ["To", _jsx("span", { className: "text-danger", children: "*" })] }), _jsx("th", { style: { minWidth: "120px" }, children: "Rate" }), _jsx("th", { style: { minWidth: "160px" }, children: "Amount" }), _jsx("th", { style: { minWidth: "110px" }, children: "CGST" }), _jsx("th", { style: { minWidth: "110px" }, children: "SGST" }), _jsx("th", { style: { minWidth: "110px" }, children: "Total GST" }), _jsx("th", { style: { minWidth: "160px" }, children: "Total" }), _jsx("th", { style: { minWidth: "160px" }, children: "Payment No" }), _jsx("th", { style: { minWidth: "120px" }, children: "Payment Date" }), _jsx("th", { style: { minWidth: "200px" }, children: "Remarks" })] }) }), _jsx("tbody", { children: formData?.details.map((row, index) => (_jsx(DpeTableRow, { row: row, index: index, services: services, errors: errors, deleteRow: deleteRow, saveRow: saveRow, inserting: inserting, handleRowChange: handleRowChange, paymentRecord: paymentRecord, checkRowForPayment: checkRowForPayment, handleCalcChange: handleCalcChange }, index))) })] }) }), _jsx("button", { type: "button", className: "btn btn-primary btn-sm mt-2 mr-4", onClick: addRow, style: {
+                                borderRadius: "0px",
+                                backgroundColor: "#023e8a",
+                                color: "#fff"
+                            }, children: "+ Add Row" })] }) }), _jsxs("div", { className: "d-flex gap-3 justify-content-end", children: [_jsx("button", { type: "button", disabled: submitting, className: "btn btn-sm btn-secondary custom-form-control", onClick: () => { setIsEdit(false); setInitialForm({}); }, children: "Back to Search Page" }), _jsxs("button", { type: "submit", onClick: handleRazorpayPayment, className: `btn btn-warning btn-sm px-4 custom-form-control position-relative ${submitting ? "loading" : ""}`, disabled: submitting || (!(paymentRecord.length > 0) || canPay), style: {
+                            minWidth: "100px"
+                        }, children: [submitting && _jsx("span", { className: "spinner-center" }), !submitting && _jsx("span", { className: "btn-text", children: "Payment through POS" })] }), _jsx("button", { type: "submit", disabled: submitting || (!(paymentRecord.length > 0) || canPay), className: "btn btn-sm  btn-dark custom-form-control ", children: "Print Payment" })] }), modal && _jsx(PopUpCheckBox, { isOpen: modal, onClose: () => setModal(false), itemsPerPage: 12, apiRequest: apiRequest, setFormData: setFormData, config: config })] }));
+};
+export default Edit;
