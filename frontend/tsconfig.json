@@ -1,0 +1,17 @@
+{
+  "compilerOptions": {
+    "baseUrl": "./",
+    "jsx": "react-jsx",    
+    "allowJs": true, 
+    "resolveJsonModule": true,
+    "esModuleInterop": true,
+    "paths": {
+      "@/*": ["src/*"]
+    }, 
+    "target": "ESNext",  // or "ES2015", "ES6", "ES2020", etc.
+    "lib": ["ESNext", "DOM"],  // Ensure ESNext or ES2015 is included
+    "module": "ESNext",  // or "ES2020", "CommonJS"
+    "moduleResolution": "Node",
+    "strict": true
+  }
+}
