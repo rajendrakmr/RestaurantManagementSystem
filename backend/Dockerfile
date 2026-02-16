@@ -10,7 +10,7 @@ RUN npm ci
 
 FROM node:20-alpine 
 
-RUN apk add --no-cache curl
+RUN apk add --no-cache wget
 
 WORKDIR /app 
 

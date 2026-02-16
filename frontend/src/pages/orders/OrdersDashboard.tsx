@@ -6,7 +6,9 @@ import notificationSoundFile from "@/notification.mp3";
 import { toast } from "react-toastify";
 import PaymentModal from "./PaymentModal"; // import the new modal component
 import moment from "moment";
-
+import { 
+  SOCKET_API_URL,
+} from "@/utils/config";
 interface OrderItem { name: string; quantity: number; price: number; }
 interface Order { _id: string; tableId: number; orderId: number; items: OrderItem[]; total: number; status: string; createdAt: string; note?: string; }
 
@@ -43,7 +45,7 @@ const OrdersDashboard: React.FC = () => {
 
   // ✅ SOCKET SETUP
   useEffect(() => {
-    const socket: Socket = io("http://192.168.31.101:5000", {
+    const socket: Socket = io(SOCKET_API_URL, {
       transports: ["websocket"],
     });
 
